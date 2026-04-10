@@ -1,0 +1,21 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  font-family: 'Inter', system-ui, sans-serif;
+  background: #f8f7f5;
+  min-height: 100vh;
+}
+
+/* Flyer specific styles for html2canvas capture */
+.flyer-card {
+  background: #ede8de;
+  font-family: 'Inter', system-ui, sans-serif;
+}
