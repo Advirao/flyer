@@ -6,15 +6,13 @@ import { signUpSchema, changePasswordSchema } from './validations'
 import { getServerSession } from 'next-auth'
 import { authOptions } from './auth'
 
-export async function signUp(
-  _prev: { error?: string; success?: boolean } | null,
-  formData: FormData
+// Called from client components directly (plain args, no FormData serialization issues)
+export async function signUpDirect(
+  emailArg: string,
+  passwordArg: string,
+  confirmPasswordArg: string
 ): Promise<{ error?: string; success?: boolean }> {
-  const raw = {
-    email: formData.get('email') as string,
-    password: formData.get('password') as string,
-    confirmPassword: formData.get('confirmPassword') as string,
-  }
+  const raw = { email: emailArg, password: passwordArg, confirmPassword: confirmPasswordArg }
 
   const result = signUpSchema.safeParse(raw)
   if (!result.success) {
@@ -24,20 +22,27 @@ export async function signUp(
   const { email, password } = result.data
 
   try {
-    const existing = await prisma.user.findUnique({
-      where: { email: email.toLowerCase().trim() },
-    })
+    const existing = await prisma.user.findUnique({ where: { email: email.toLowerCase().trim() } })
     if (existing) return { error: 'Unable to create account. Please try signing in or use a different email.' }
 
     const passwordHash = await hash(password, 12)
-    await prisma.user.create({
-      data: { email: email.toLowerCase().trim(), passwordHash },
-    })
-
+    await prisma.user.create({ data: { email: email.toLowerCase().trim(), passwordHash } })
     return { success: true }
   } catch {
     return { error: 'Something went wrong. Please try again.' }
   }
+}
+
+// Called via <form action={formAction}> with useActionState (React 19 / form progressive enhancement)
+export async function signUp(
+  _prev: { error?: string; success?: boolean } | null,
+  formData: FormData
+): Promise<{ error?: string; success?: boolean }> {
+  return signUpDirect(
+    formData.get('email') as string,
+    formData.get('password') as string,
+    formData.get('confirmPassword') as string,
+  )
 }
 
 export async function changePassword(

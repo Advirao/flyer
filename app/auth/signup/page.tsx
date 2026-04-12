@@ -1,83 +1,90 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
-import { useActionState } from 'react'
-import { useFormStatus } from 'react-dom'
+import { useState } from 'react'
 import { signIn } from 'next-auth/react'
-import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import AuthForm from '@/components/AuthForm'
-import { signUp } from '@/lib/auth-actions'
-
-function SubmitButton() {
-  const { pending } = useFormStatus()
-  return (
-    <button
-      type="submit"
-      disabled={pending}
-      className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-200 disabled:text-gray-400 disabled:cursor-not-allowed text-white font-semibold py-3 rounded-xl transition text-sm shadow-sm"
-    >
-      {pending ? (
-        <span className="flex items-center justify-center gap-2">
-          <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none">
-            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-          </svg>
-          Creating account…
-        </span>
-      ) : (
-        'Create account'
-      )}
-    </button>
-  )
-}
 
 export default function SignUpPage() {
-  const router = useRouter()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
   const [signingIn, setSigningIn] = useState(false)
-  const submittedCredsRef = useRef({ email: '', password: '' })
-
-  const [state, formAction] = useActionState(signUp, null)
-
-  const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
-    const data = new FormData(e.currentTarget)
-    submittedCredsRef.current = {
-      email: (data.get('email') as string).trim().toLowerCase(),
-      password: data.get('password') as string,
-    }
-  }
-
-  useEffect(() => {
-    if (state?.success) {
-      setSigningIn(true)
-      const { email: submittedEmail, password: submittedPassword } = submittedCredsRef.current
-      signIn('credentials', { email: submittedEmail, password: submittedPassword, redirect: false }).then((result) => {
-        if (result?.error) {
-          window.location.href = '/auth/signin?registered=1'
-        } else {
-          window.location.href = '/app'
-        }
-        setSigningIn(false)
-      })
-    }
-  }, [state?.success, router])
 
   const passwordsMatch = !confirmPassword || password === confirmPassword
+
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault()
+    if (!passwordsMatch) return
+
+    setError('')
+    setLoading(true)
+
+    const signupResult = await new Promise<{ error?: string; success?: boolean }>((resolve) => {
+      const xhr = new XMLHttpRequest()
+      xhr.timeout = 12000
+      xhr.onload = () => {
+        try {
+          resolve(JSON.parse(xhr.responseText))
+        } catch {
+          resolve({ error: 'Unexpected server response.' })
+        }
+      }
+      xhr.onerror = () => resolve({ error: 'Network error. Please try again.' })
+      xhr.ontimeout = () => resolve({ error: 'Request timed out. Please try again.' })
+      xhr.open('POST', '/api/signup')
+      xhr.setRequestHeader('Content-Type', 'application/json')
+      xhr.send(JSON.stringify({ email: email.trim().toLowerCase(), password, confirmPassword }))
+    })
+
+    console.log('[signup] api result:', JSON.stringify(signupResult))
+
+    if (signupResult?.error) {
+      setError(signupResult.error)
+      setLoading(false)
+      return
+    }
+
+    // Signup succeeded — auto sign in
+    setSigningIn(true)
+    setLoading(false)
+    try {
+      console.log('[signup] calling signIn...')
+      const signInResult = await signIn('credentials', {
+        email: email.trim().toLowerCase(),
+        password,
+        redirect: false,
+      })
+      console.log('[signup] signIn result:', JSON.stringify(signInResult))
+
+      if (signInResult?.ok && !signInResult?.error) {
+        console.log('[signup] navigating to /app')
+        window.location.href = '/app'
+      } else {
+        console.log('[signup] fallback to signin page')
+        window.location.href = '/auth/signin?registered=1'
+      }
+    } catch (err) {
+      console.log('[signup] signIn caught:', String(err))
+      window.location.href = '/auth/signin?registered=1'
+    } finally {
+      setSigningIn(false)
+    }
+  }
 
   return (
     <AuthForm
       title="Create your account"
       subtitle="Free forever — no credit card required"
     >
-      <form action={formAction} onSubmit={handleSubmit} className="space-y-5">
-        {state?.error && (
+      <form onSubmit={handleSubmit} method="post" className="space-y-5">
+        {error && (
           <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-4 py-3 flex items-start gap-2">
             <span className="mt-0.5 shrink-0">⚠️</span>
-            <span>{state.error}</span>
+            <span>{error}</span>
           </div>
         )}
         {signingIn && (
@@ -144,7 +151,31 @@ export default function SignUpPage() {
           )}
         </div>
 
-        <SubmitButton />
+        <button
+          type="submit"
+          disabled={loading || signingIn}
+          className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-200 disabled:text-gray-400 disabled:cursor-not-allowed text-white font-semibold py-3 rounded-xl transition text-sm shadow-sm"
+        >
+          {signingIn ? (
+            <span className="flex items-center justify-center gap-2">
+              <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+              </svg>
+              Signing in…
+            </span>
+          ) : loading ? (
+            <span className="flex items-center justify-center gap-2">
+              <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+              </svg>
+              Creating account…
+            </span>
+          ) : (
+            'Create account'
+          )}
+        </button>
       </form>
 
       <p className="text-center text-sm text-gray-500 mt-6">

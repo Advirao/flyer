@@ -57,7 +57,7 @@ function SignInForm() {
       title="Welcome back"
       subtitle="Sign in to your account to start generating flyers"
     >
-      <form onSubmit={handleSubmit} className="space-y-5">
+      <form onSubmit={handleSubmit} method="post" className="space-y-5">
         {displayError && (
           <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-4 py-3 flex items-start gap-2">
             <span className="mt-0.5 shrink-0">⚠️</span>

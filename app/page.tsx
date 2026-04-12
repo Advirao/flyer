@@ -24,8 +24,8 @@ const features = [
 ]
 
 const steps = [
-  { n: '1', label: 'Sign up free', desc: 'Create your account in under 30 seconds.' },
-  { n: '2', label: 'Upload a photo', desc: 'Take a picture of your item and upload it.' },
+  { n: '1', label: 'Upload a photo', desc: 'Take a picture of your item and upload it — no account needed.' },
+  { n: '2', label: 'AI writes the copy', desc: 'Our AI instantly generates a title, description, and FB Marketplace listing.' },
   { n: '3', label: 'Download & share', desc: 'Get your flyer and FB Marketplace copy instantly.' },
 ]
 
@@ -84,7 +84,7 @@ export default function LandingPage() {
         <section className="bg-gradient-to-b from-blue-50 via-indigo-50 to-white py-24 px-4 text-center">
           <div className="max-w-3xl mx-auto">
             <span className="inline-block bg-blue-100 text-blue-700 text-xs font-semibold px-3 py-1 rounded-full mb-6 uppercase tracking-wide">
-              No design skills needed
+              No design skills or sign up needed
             </span>
             <h1 className="text-4xl sm:text-5xl md:text-6xl font-extrabold text-gray-900 leading-tight mb-6">
               Turn any photo into a{' '}
@@ -97,16 +97,16 @@ export default function LandingPage() {
             </p>
             <div className="flex flex-col sm:flex-row gap-4 justify-center">
               <Link
-                href="/auth/signup"
+                href="/app"
                 className="bg-blue-600 hover:bg-blue-700 text-white font-bold text-lg px-8 py-4 rounded-2xl shadow-lg hover:shadow-xl transition-all transform hover:-translate-y-0.5"
               >
-                Create your first flyer →
+                Try it free — no sign up needed →
               </Link>
               <Link
-                href="/auth/signin"
+                href="/auth/signup"
                 className="bg-white hover:bg-gray-50 text-gray-700 font-semibold text-lg px-8 py-4 rounded-2xl border border-gray-200 shadow-sm transition"
               >
-                Sign in
+                Create an account
               </Link>
             </div>
           </div>
@@ -165,12 +165,20 @@ export default function LandingPage() {
             <p className="text-blue-100 mb-8 text-lg">
               Join thousands of people who use Flyer Generator to sell items faster on Facebook Marketplace and beyond.
             </p>
-            <Link
-              href="/auth/signup"
-              className="inline-block bg-white text-blue-600 font-bold text-lg px-10 py-4 rounded-2xl shadow-lg hover:shadow-xl transition-all transform hover:-translate-y-0.5"
-            >
-              Get started
-            </Link>
+            <div className="flex flex-col sm:flex-row gap-4 justify-center">
+              <Link
+                href="/app"
+                className="inline-block bg-white text-blue-600 font-bold text-lg px-10 py-4 rounded-2xl shadow-lg hover:shadow-xl transition-all transform hover:-translate-y-0.5"
+              >
+                Try it free →
+              </Link>
+              <Link
+                href="/auth/signup"
+                className="inline-block bg-blue-500 hover:bg-blue-400 text-white font-semibold text-lg px-10 py-4 rounded-2xl border border-blue-400 transition"
+              >
+                Create an account
+              </Link>
+            </div>
           </div>
         </section>
 

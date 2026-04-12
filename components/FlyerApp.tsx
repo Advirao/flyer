@@ -2,6 +2,7 @@
 
 import { useState, useRef, useCallback, useEffect } from 'react'
 import { useSession, signOut } from 'next-auth/react'
+import Link from 'next/link'
 import FlyerPreview from './FlyerPreview'
 import FBMarketplaceCard from './FBMarketplaceCard'
 
@@ -26,7 +27,7 @@ export interface FBData {
   description: string
 }
 
-type Step = 'setup' | 'upload' | 'details' | 'preview'
+type Step = 'upload' | 'details' | 'preview'
 type PreviewTab = 'flyer' | 'fb'
 
 export default function FlyerApp() {
@@ -60,9 +61,9 @@ export default function FlyerApp() {
       const parsed = JSON.parse(saved) as Settings
       setSettings(parsed)
       setSettingsDraft(parsed)
-      if (!parsed.pickupAddress || !parsed.contact) setStep('setup')
+      if (!parsed.pickupAddress || !parsed.contact) setShowSettings(true)
     } else {
-      setStep('setup')
+      setShowSettings(true)
     }
   }, [])
 
@@ -71,7 +72,6 @@ export default function FlyerApp() {
     localStorage.setItem('flyerSettings', JSON.stringify(settingsDraft))
     setSettings(settingsDraft)
     setShowSettings(false)
-    if (step === 'setup') setStep('upload')
   }
 
   const handleImageSelect = useCallback(async (file: File) => {
@@ -153,20 +153,6 @@ export default function FlyerApp() {
     description: fbDescription,
   }
 
-  if (step === 'setup' && !showSettings) {
-    return (
-      <div className="min-h-screen flex items-center justify-center p-4 bg-gray-50">
-        <div className="bg-white rounded-2xl shadow-lg p-8 w-full max-w-md">
-          <h1 className="text-2xl font-bold text-gray-900 mb-1">Welcome to Flyer Generator</h1>
-          <p className="text-gray-500 text-sm mb-6">
-            Set up your pickup location and contact info once — you&apos;ll never need to re-enter it.
-          </p>
-          <SetupForm draft={settingsDraft} onChange={setSettingsDraft} onSave={saveSettings} label="Get Started" />
-        </div>
-      </div>
-    )
-  }
-
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
@@ -176,24 +162,41 @@ export default function FlyerApp() {
           <span className="font-bold text-gray-900 text-base sm:text-lg">Flyer Generator</span>
         </div>
         <div className="flex items-center gap-2">
-          {session?.user?.email && (
-            <span className="hidden sm:block text-xs text-gray-400 max-w-[140px] truncate">
-              {session.user.email}
-            </span>
-          )}
           <button
             onClick={() => { setSettingsDraft(settings); setShowSettings(true) }}
             className="text-sm text-gray-500 hover:text-gray-900 flex items-center gap-1 px-3 py-1.5 rounded-lg hover:bg-gray-100 transition"
           >
             <span>⚙️</span><span className="hidden sm:inline">Settings</span>
           </button>
-          <button
-            onClick={() => signOut({ callbackUrl: '/' })}
-            className="text-sm text-gray-500 hover:text-red-600 flex items-center gap-1 px-3 py-1.5 rounded-lg hover:bg-red-50 transition"
-            title="Sign out"
-          >
-            <span>→</span><span className="hidden sm:inline">Sign out</span>
-          </button>
+          {session?.user ? (
+            <>
+              <span className="hidden sm:block text-xs text-gray-400 max-w-[140px] truncate">
+                {session.user.email}
+              </span>
+              <button
+                onClick={() => signOut({ callbackUrl: '/' })}
+                className="text-sm text-gray-500 hover:text-red-600 flex items-center gap-1 px-3 py-1.5 rounded-lg hover:bg-red-50 transition"
+                title="Sign out"
+              >
+                <span>→</span><span className="hidden sm:inline">Sign out</span>
+              </button>
+            </>
+          ) : (
+            <>
+              <Link
+                href="/auth/signin"
+                className="text-sm text-gray-500 hover:text-gray-900 px-3 py-1.5 rounded-lg hover:bg-gray-100 transition"
+              >
+                Sign in
+              </Link>
+              <Link
+                href="/auth/signup"
+                className="text-sm font-semibold bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg transition"
+              >
+                Sign up
+              </Link>
+            </>
+          )}
         </div>
       </header>
 
@@ -202,10 +205,19 @@ export default function FlyerApp() {
         <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-md max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-bold text-gray-900">Update Settings</h2>
-              <button onClick={() => setShowSettings(false)} className="text-gray-400 hover:text-gray-700 text-xl font-bold leading-none">×</button>
+              <div>
+                <h2 className="text-lg font-bold text-gray-900">
+                  {settings.pickupAddress ? 'Update Settings' : 'Welcome! Quick setup'}
+                </h2>
+                {!settings.pickupAddress && (
+                  <p className="text-sm text-gray-500 mt-0.5">Enter your pickup address and contact once — saved locally.</p>
+                )}
+              </div>
+              {settings.pickupAddress && (
+                <button onClick={() => setShowSettings(false)} className="text-gray-400 hover:text-gray-700 text-xl font-bold leading-none">×</button>
+              )}
             </div>
-            <SetupForm draft={settingsDraft} onChange={setSettingsDraft} onSave={saveSettings} label="Save" />
+            <SetupForm draft={settingsDraft} onChange={setSettingsDraft} onSave={saveSettings} label={settings.pickupAddress ? 'Save' : 'Get Started'} />
           </div>
         </div>
       )}
@@ -220,10 +232,20 @@ export default function FlyerApp() {
               <div
                 onDrop={handleDrop}
                 onDragOver={(e) => e.preventDefault()}
-                onClick={() => !analyzing && fileInputRef.current?.click()}
                 className={`relative border-2 border-dashed rounded-2xl p-6 text-center min-h-[160px] flex flex-col items-center justify-center transition-all group overflow-hidden
                   ${analyzing ? 'border-blue-300 cursor-default' : 'border-gray-300 cursor-pointer hover:border-blue-400 hover:bg-blue-50/30'}`}
               >
+                {/* Transparent file input covers the entire zone for reliable click-to-browse */}
+                {!analyzing && (
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/*"
+                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-20"
+                    onChange={(e) => { const f = e.target.files?.[0]; if (f) handleImageSelect(f) }}
+                  />
+                )}
+
                 {/* Spinner overlay while analyzing */}
                 {analyzing && (
                   <div className="absolute inset-0 bg-white/80 backdrop-blur-sm flex flex-col items-center justify-center z-10 rounded-2xl gap-3">
@@ -249,7 +271,6 @@ export default function FlyerApp() {
                     <p className="text-sm text-gray-400">or click to browse</p>
                   </div>
                 )}
-                <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) handleImageSelect(f) }} />
               </div>
 
               {/* Form */}
