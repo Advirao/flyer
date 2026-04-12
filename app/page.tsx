@@ -95,18 +95,12 @@ export default function LandingPage() {
               Upload a photo of your item. Our AI instantly writes the title, description, and
               Facebook Marketplace listing. Download a print-ready PNG flyer in seconds.
             </p>
-            <div className="flex flex-col sm:flex-row gap-4 justify-center">
-              <Link
-                href="/app"
-                className="bg-blue-600 hover:bg-blue-700 text-white font-bold text-lg px-8 py-4 rounded-2xl shadow-lg hover:shadow-xl transition-all transform hover:-translate-y-0.5"
-              >
-                Try it free — no sign up needed →
-              </Link>
+            <div className="flex justify-center">
               <Link
                 href="/auth/signup"
-                className="bg-white hover:bg-gray-50 text-gray-700 font-semibold text-lg px-8 py-4 rounded-2xl border border-gray-200 shadow-sm transition"
+                className="bg-blue-600 hover:bg-blue-700 text-white font-bold text-lg px-8 py-4 rounded-2xl shadow-lg hover:shadow-xl transition-all transform hover:-translate-y-0.5"
               >
-                Create an account
+                Try It — Create an Account →
               </Link>
             </div>
           </div>
@@ -165,18 +159,12 @@ export default function LandingPage() {
             <p className="text-blue-100 mb-8 text-lg">
               Join thousands of people who use Flyer Generator to sell items faster on Facebook Marketplace and beyond.
             </p>
-            <div className="flex flex-col sm:flex-row gap-4 justify-center">
-              <Link
-                href="/app"
-                className="inline-block bg-white text-blue-600 font-bold text-lg px-10 py-4 rounded-2xl shadow-lg hover:shadow-xl transition-all transform hover:-translate-y-0.5"
-              >
-                Try it free →
-              </Link>
+            <div className="flex justify-center">
               <Link
                 href="/auth/signup"
-                className="inline-block bg-blue-500 hover:bg-blue-400 text-white font-semibold text-lg px-10 py-4 rounded-2xl border border-blue-400 transition"
+                className="inline-block bg-white text-blue-600 font-bold text-lg px-10 py-4 rounded-2xl shadow-lg hover:shadow-xl transition-all transform hover:-translate-y-0.5"
               >
-                Create an account
+                Try It — Create an Account →
               </Link>
             </div>
           </div>
