@@ -2,13 +2,61 @@ import { NextRequest, NextResponse } from 'next/server'
 import { hash } from 'bcryptjs'
 import { prisma } from '@/lib/db'
 import { signUpSchema } from '@/lib/validations'
+import { getClientIp, rateLimit } from '@/lib/rate-limit'
+
+// Hard body cap. Signup payload is three short strings; anything larger is abuse.
+const MAX_BODY_BYTES = 2_000
 
 export async function POST(req: NextRequest) {
   try {
-    const { email, password, confirmPassword } = await req.json()
-    const result = signUpSchema.safeParse({ email, password, confirmPassword })
+    // Rate limit: 5 signup attempts per IP per 10 minutes.
+    // bcrypt at cost 12 is CPU-expensive (~250ms), so unbounded signups
+    // are a cheap DoS vector. This also limits account-enumeration probing.
+    const ip = getClientIp(req)
+    const rl = rateLimit(`signup:${ip}`, 5, 10 * 60 * 1000)
+    if (!rl.allowed) {
+      return NextResponse.json(
+        { error: 'Too many signup attempts. Please try again later.' },
+        {
+          status: 429,
+          headers: { Connection: 'close', 'Retry-After': String(rl.retryAfterSeconds) },
+        }
+      )
+    }
+
+    // Reject payloads that are obviously oversized before parsing.
+    const contentLength = Number(req.headers.get('content-length') ?? '0')
+    if (contentLength > MAX_BODY_BYTES) {
+      return NextResponse.json(
+        { error: 'Request body too large.' },
+        { status: 413, headers: { Connection: 'close' } }
+      )
+    }
+
+    const body = await req.text()
+    if (body.length > MAX_BODY_BYTES) {
+      return NextResponse.json(
+        { error: 'Request body too large.' },
+        { status: 413, headers: { Connection: 'close' } }
+      )
+    }
+
+    let parsedBody: unknown
+    try {
+      parsedBody = JSON.parse(body)
+    } catch {
+      return NextResponse.json(
+        { error: 'Invalid request body.' },
+        { status: 400, headers: { Connection: 'close' } }
+      )
+    }
+
+    const result = signUpSchema.safeParse(parsedBody)
     if (!result.success) {
-      return NextResponse.json({ error: result.error.issues[0].message }, { status: 400, headers: { Connection: 'close' } })
+      return NextResponse.json(
+        { error: result.error.issues[0].message },
+        { status: 400, headers: { Connection: 'close' } }
+      )
     }
 
     const normalizedEmail = result.data.email.toLowerCase().trim()
@@ -24,6 +72,9 @@ export async function POST(req: NextRequest) {
     await prisma.user.create({ data: { email: normalizedEmail, passwordHash } })
     return NextResponse.json({ success: true }, { headers: { Connection: 'close' } })
   } catch {
-    return NextResponse.json({ error: 'Something went wrong. Please try again.' }, { status: 500, headers: { Connection: 'close' } })
+    return NextResponse.json(
+      { error: 'Something went wrong. Please try again.' },
+      { status: 500, headers: { Connection: 'close' } }
+    )
   }
 }

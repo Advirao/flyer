@@ -29,19 +29,19 @@ function SignInForm() {
         password: passwordVal,
         redirect: false,
       })
-      console.log('signIn result:', JSON.stringify(result))
       if (!result) {
         setError('No response from server. Check your connection.')
       } else if (result.error) {
-        setError(`Auth error: ${result.error}`)
+        // Do not surface raw NextAuth error strings to the UI — they can
+        // leak provider internals. Show a single generic credential error.
+        setError('Invalid email or password. Please try again.')
       } else if (result.ok) {
         window.location.replace('/app')
       } else {
-        setError(`Unexpected result: ${JSON.stringify(result)}`)
+        setError('Sign-in failed. Please try again.')
       }
-    } catch (err) {
-      console.error('signIn threw:', err)
-      setError(`Exception: ${err instanceof Error ? err.message : String(err)}`)
+    } catch {
+      setError('Sign-in failed. Please try again.')
     } finally {
       setLoading(false)
     }

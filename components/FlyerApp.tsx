@@ -56,13 +56,18 @@ export default function FlyerApp() {
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
-    const saved = localStorage.getItem('flyerSettings')
-    if (saved) {
-      const parsed = JSON.parse(saved) as Settings
-      setSettings(parsed)
-      setSettingsDraft(parsed)
-      if (!parsed.pickupAddress || !parsed.contact) setShowSettings(true)
-    } else {
+    try {
+      const saved = localStorage.getItem('flyerSettings')
+      if (saved) {
+        const parsed = JSON.parse(saved) as Settings
+        setSettings(parsed)
+        setSettingsDraft(parsed)
+        if (!parsed.pickupAddress || !parsed.contact) setShowSettings(true)
+      } else {
+        setShowSettings(true)
+      }
+    } catch {
+      localStorage.removeItem('flyerSettings')
       setShowSettings(true)
     }
   }, [])
@@ -90,11 +95,11 @@ export default function FlyerApp() {
     reader.readAsDataURL(file)
 
     // Base64 for API
-    const arrayBuffer = await file.arrayBuffer()
-    const bytes = new Uint8Array(arrayBuffer)
-    let binary = ''
-    for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i])
-    const base64 = btoa(binary)
+    const base64 = await new Promise<string>((resolve) => {
+      const r = new FileReader()
+      r.onload = () => resolve((r.result as string).split(',')[1])
+      r.readAsDataURL(file)
+    })
     const mediaType = file.type as 'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif'
 
     setAnalyzing(true)

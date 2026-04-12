@@ -1,11 +1,38 @@
 import OpenAI from 'openai'
 import { NextRequest, NextResponse } from 'next/server'
+import { getServerSession } from 'next-auth'
+import { authOptions } from '@/lib/auth'
+import { getClientIp, rateLimit } from '@/lib/rate-limit'
 
 const ALLOWED_MEDIA_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif'])
 const MAX_BASE64_LENGTH = 14_000_000 // ~10MB image
+// Strict base64: groups of 4 chars, optionally padded with 1-2 '=' at the end only.
+const BASE64_RE = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/
 
 export async function POST(req: NextRequest) {
+  const session = await getServerSession(authOptions)
+  if (!session) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
+  // Rate limit by authenticated user (falls back to IP). This prevents a
+  // single account from burning through the shared OpenRouter key.
+  const userId = (session.user as { id?: string })?.id ?? session.user?.email ?? getClientIp(req)
+  const rl = rateLimit(`analyze:${userId}`, 10, 60 * 1000) // 10 requests/minute
+  if (!rl.allowed) {
+    return NextResponse.json(
+      { error: 'Too many requests. Please wait a moment and try again.' },
+      { status: 429, headers: { 'Retry-After': String(rl.retryAfterSeconds) } }
+    )
+  }
+
   try {
+    // Cap raw body size before JSON parsing to prevent memory abuse.
+    const contentLength = Number(req.headers.get('content-length') ?? '0')
+    if (contentLength > MAX_BASE64_LENGTH + 2000) {
+      return NextResponse.json({ error: 'Image too large (max ~10MB)' }, { status: 413 })
+    }
+
     const { imageBase64, mediaType, userApiKey } = await req.json()
 
     if (!imageBase64 || !mediaType) {
@@ -13,7 +40,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Validate mediaType against allowlist
-    if (!ALLOWED_MEDIA_TYPES.has(mediaType)) {
+    if (typeof mediaType !== 'string' || !ALLOWED_MEDIA_TYPES.has(mediaType)) {
       return NextResponse.json({ error: 'Unsupported image format' }, { status: 400 })
     }
 
@@ -22,9 +49,17 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Image too large (max ~10MB)' }, { status: 413 })
     }
 
-    // Validate base64 characters
-    if (!/^[A-Za-z0-9+/=]+$/.test(imageBase64)) {
+    // Validate base64 structure (strict: proper 4-char grouping and padding placement)
+    if (imageBase64.length === 0 || imageBase64.length % 4 !== 0 || !BASE64_RE.test(imageBase64)) {
       return NextResponse.json({ error: 'Invalid image data' }, { status: 400 })
+    }
+
+    // If a user API key is supplied, require it to look like a real OpenRouter key.
+    // This prevents junk / injected values from being forwarded to OpenRouter.
+    if (typeof userApiKey !== 'undefined' && userApiKey !== null && userApiKey !== '') {
+      if (typeof userApiKey !== 'string' || !/^sk-[A-Za-z0-9_\-]{10,200}$/.test(userApiKey.trim())) {
+        return NextResponse.json({ error: 'Invalid API key format' }, { status: 400 })
+      }
     }
 
     // Use the user's own key if provided, otherwise fall back to the server key

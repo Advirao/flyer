@@ -40,8 +40,6 @@ export default function SignUpPage() {
       xhr.send(JSON.stringify({ email: email.trim().toLowerCase(), password, confirmPassword }))
     })
 
-    console.log('[signup] api result:', JSON.stringify(signupResult))
-
     if (signupResult?.error) {
       setError(signupResult.error)
       setLoading(false)
@@ -52,23 +50,17 @@ export default function SignUpPage() {
     setSigningIn(true)
     setLoading(false)
     try {
-      console.log('[signup] calling signIn...')
       const signInResult = await signIn('credentials', {
         email: email.trim().toLowerCase(),
         password,
         redirect: false,
       })
-      console.log('[signup] signIn result:', JSON.stringify(signInResult))
-
       if (signInResult?.ok && !signInResult?.error) {
-        console.log('[signup] navigating to /app')
         window.location.href = '/app'
       } else {
-        console.log('[signup] fallback to signin page')
         window.location.href = '/auth/signin?registered=1'
       }
-    } catch (err) {
-      console.log('[signup] signIn caught:', String(err))
+    } catch {
       window.location.href = '/auth/signin?registered=1'
     } finally {
       setSigningIn(false)

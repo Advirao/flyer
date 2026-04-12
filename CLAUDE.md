@@ -61,7 +61,7 @@ OPENROUTER_API_KEY=    # default AI key; users can supply their own via Settings
 
 **`FlyerPreview.tsx` must use inline styles only — no Tailwind classes on the flyer card.** `html2canvas` cannot read Tailwind's utility classes reliably; all layout and colour for the downloadable card is done with `style={{}}` props. This constraint applies to the element referenced by `flyerRef`.
 
-**Server actions (`lib/auth-actions.ts`) handle signup and password change.** They use `useActionState` + `useFormStatus` on the client. Sign-in uses `next-auth/react`'s `signIn()` directly (client-side credentials call).
+**Signup uses `app/api/signup/route.ts`** (an API route, not a server action) called via XHR from `app/auth/signup/page.tsx`. Password change uses a server action in `lib/auth-actions.ts`. Sign-in uses `next-auth/react`'s `signIn()` directly (client-side credentials call).
 
 **Prisma client is a singleton** (`lib/db.ts`) guarded by `globalThis` to survive Next.js hot reloads in development.
 

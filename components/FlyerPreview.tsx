@@ -1,15 +1,7 @@
 'use client'
 
 import { useRef, useState } from 'react'
-
-interface FlyerData {
-  imageDataUrl: string
-  title: string
-  description: string
-  price: string
-  pickupAddress: string
-  contact: string
-}
+import type { FlyerData } from './FlyerApp'
 
 interface Props {
   data: FlyerData
