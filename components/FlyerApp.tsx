@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useRef, useCallback, useEffect } from 'react'
+import { useSession, signOut } from 'next-auth/react'
 import FlyerPreview from './FlyerPreview'
 import FBMarketplaceCard from './FBMarketplaceCard'
 
@@ -29,6 +30,7 @@ type Step = 'setup' | 'upload' | 'details' | 'preview'
 type PreviewTab = 'flyer' | 'fb'
 
 export default function FlyerApp() {
+  const { data: session } = useSession()
   const [step, setStep] = useState<Step>('upload')
   const [settings, setSettings] = useState<Settings>({ pickupAddress: '', contact: '' })
   const [settingsDraft, setSettingsDraft] = useState<Settings>({ pickupAddress: '', contact: '' })
@@ -115,7 +117,7 @@ export default function FlyerApp() {
     } finally {
       setAnalyzing(false)
     }
-  }, [])
+  }, [settings.userApiKey])
 
   const handleDrop = useCallback(
     (e: React.DragEvent) => {
@@ -173,12 +175,26 @@ export default function FlyerApp() {
           <span className="text-xl hidden sm:inline">🏷️</span>
           <span className="font-bold text-gray-900 text-base sm:text-lg">Flyer Generator</span>
         </div>
-        <button
-          onClick={() => { setSettingsDraft(settings); setShowSettings(true) }}
-          className="text-sm text-gray-500 hover:text-gray-900 flex items-center gap-1 px-3 py-1.5 rounded-lg hover:bg-gray-100 transition"
-        >
-          <span>⚙️</span><span className="hidden sm:inline">Settings</span>
-        </button>
+        <div className="flex items-center gap-2">
+          {session?.user?.email && (
+            <span className="hidden sm:block text-xs text-gray-400 max-w-[140px] truncate">
+              {session.user.email}
+            </span>
+          )}
+          <button
+            onClick={() => { setSettingsDraft(settings); setShowSettings(true) }}
+            className="text-sm text-gray-500 hover:text-gray-900 flex items-center gap-1 px-3 py-1.5 rounded-lg hover:bg-gray-100 transition"
+          >
+            <span>⚙️</span><span className="hidden sm:inline">Settings</span>
+          </button>
+          <button
+            onClick={() => signOut({ callbackUrl: '/' })}
+            className="text-sm text-gray-500 hover:text-red-600 flex items-center gap-1 px-3 py-1.5 rounded-lg hover:bg-red-50 transition"
+            title="Sign out"
+          >
+            <span>→</span><span className="hidden sm:inline">Sign out</span>
+          </button>
+        </div>
       </header>
 
       {/* Settings Modal */}

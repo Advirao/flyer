@@ -1,7 +1,7 @@
 # Product Requirements Document: Flyer Generator
 
-**Version:** 1.0  
-**Date:** 2026-04-10  
+**Version:** 1.1  
+**Date:** 2026-04-11  
 **Status:** Current
 
 ---
@@ -23,7 +23,7 @@
 
 ## 1. Overview
 
-Flyer Generator is a mobile-friendly Next.js 15 web app that turns a single photo into two sale-ready marketing assets: a downloadable PNG flyer and copy-ready Facebook Marketplace text. The app owner built it for personal use and shares it with friends at no cost. There is no login, no account management, and no per-use friction — the entire experience from photo to finished flyer takes under 60 seconds.
+Flyer Generator is a mobile-friendly Next.js 15 web app that turns a single photo into two sale-ready marketing assets: a downloadable PNG flyer and copy-ready Facebook Marketplace text. Users create a free account and sign in to access the generator. The entire experience from sign-in to finished flyer takes under 60 seconds.
 
 The core value proposition is **AI-powered zero-effort copywriting**. Users photograph an item, and the app automatically produces a title, a flyer description, and a fully formatted Facebook Marketplace listing. The user's only required manual input after uploading is the price. Pickup address and contact information are stored once in `localStorage` and reused silently for every subsequent listing.
 
@@ -37,8 +37,11 @@ The core value proposition is **AI-powered zero-effort copywriting**. Users phot
 | AI Backend | OpenRouter API (model: `nvidia/nemotron-nano-12b-v2-vl:free`) |
 | AI Client | OpenAI SDK (`openai` npm package, pointed at OpenRouter base URL) |
 | Image Export | html2canvas 1.4.1 (scale: 3x for high-res PNG) |
-| Persistence | Browser `localStorage` (settings only) |
-| Auth | None |
+| Persistence | Browser `localStorage` (settings) + PostgreSQL (user accounts) |
+| Auth | NextAuth v4 (Credentials provider — email + password) |
+| ORM | Prisma |
+| Database | PostgreSQL via Supabase (connection pooling with pgbouncer) |
+| Password Hashing | bcryptjs (cost factor 12) |
 
 ---
 
@@ -48,7 +51,7 @@ The core value proposition is **AI-powered zero-effort copywriting**. Users phot
 
 - **G1 — Speed:** Reduce the time to create a for-sale listing from 10+ minutes (manual photo editing, copywriting, formatting) to under 60 seconds.
 - **G2 — Ease:** Require zero marketing or design skill from the user. AI handles all copy; the app handles all layout.
-- **G3 — Zero marginal cost to friends:** The app owner's OpenRouter API key is the default. Friends can use the app for free without signing up for any service.
+- **G3 — Account-based access:** Users sign up with an email and password. The app owner's OpenRouter API key is the default after sign-in. Friends can use the app for free after creating an account.
 - **G4 — One-time configuration:** Users enter their pickup address and contact information once. It persists in `localStorage` and is never asked for again unless the user chooses to update it.
 - **G5 — Dual output:** Every listing session produces both a print/share-ready PNG flyer and text optimized for Facebook Marketplace, covering the two most common channels for local selling.
 
@@ -63,14 +66,14 @@ The core value proposition is **AI-powered zero-effort copywriting**. Users phot
 
 The following are explicitly out of scope for version 1.0:
 
-- **No user accounts or authentication.** Login was deliberately removed. There is no concept of user identity, saved listings history, or cloud sync.
+- **No third-party OAuth providers.** Auth is email + password only; no Google, GitHub, or social login.
 - **No multi-user or multi-tenant management.** There is no admin interface, usage dashboard, or per-user quota enforcement beyond the optional bring-your-own-key feature.
 - **No image editing or cropping.** The uploaded image is used as-is. No filters, rotation, or resize controls are provided.
 - **No direct social media integration.** The app produces copy for Facebook Marketplace but does not post to it. There is no OAuth connection to any social platform.
 - **No payments or subscriptions.** The app is free to use by design; there is no billing layer.
 - **No multi-photo listings.** Each session is for a single item with a single photo.
 - **No offline support / PWA.** An active internet connection is required for AI analysis.
-- **No server-side persistence.** No database, no user data stored on the server, no analytics collection.
+- **No listing history persistence.** User accounts are stored but listing data (images, generated copy) is never persisted server-side.
 - **No email or SMS delivery.** Flyers are downloaded by the user; there is no send-to-email or share-by-link feature.
 - **No custom flyer templates or branding.** The beige-background layout is fixed and non-configurable.
 
@@ -210,16 +213,28 @@ Features are prioritized using MoSCoW: **Must Have**, **Should Have**, **Could H
 | F-19: Show/Hide API Key Toggle | Password field for API key with a toggle button to reveal the value. | Yes |
 | F-20: Image Re-upload Without Losing Settings | Re-selecting a photo clears only image/AI fields; address, contact, and price behavior resets for the new item. | Yes |
 
+### Must Have — Auth (P0)
+
+| Feature | Description | Implemented |
+|---|---|---|
+| F-A1: Sign-up | Email + password registration. Validates format, min 8 chars, 1 uppercase, 1 number. bcryptjs hash stored in DB. | Yes |
+| F-A2: Sign-in | Email + password sign-in via NextAuth Credentials provider. Issues JWT session cookie. | Yes |
+| F-A3: Change password | Authenticated users can change their password (current + new + confirm). | Yes |
+| F-A4: Protected app route | `/app/*` is protected by middleware; unauthenticated users are redirected to sign-in. | Yes |
+| F-A5: Protected API route | `/api/analyze` checks session server-side and returns 401 if no valid session. | Yes |
+
 ### Won't Have (this version)
 
 | Feature | Reason |
 |---|---|
-| F-W1: User accounts / login | Deliberately removed. No server-side user data. |
-| F-W2: Listing history | No persistence layer. Each session is ephemeral. |
+| F-W1: Third-party OAuth | Email/password only in v1.0. Google/GitHub login not planned. |
+| F-W2: Listing history | Listing data is ephemeral — only user accounts are stored. |
 | F-W3: Custom flyer templates | Fixed beige layout is the intentional design. |
 | F-W4: Direct social posting | No OAuth integrations planned. |
 | F-W5: Multi-photo listings | One photo per listing by design. |
 | F-W6: Offline/PWA support | Requires internet for AI. |
+| F-W7: Account deletion | Not implemented in v1.0. |
+| F-W8: Email verification | Accounts are trusted by email at signup; no verification email sent. |
 
 ---
 
@@ -352,12 +367,18 @@ POST /api/analyze fails or returns error
 ### Component Tree
 
 ```
-app/page.tsx
-  └── FlyerApp (components/FlyerApp.tsx)  [all state lives here]
-        ├── SetupForm (inline)             [first-run + settings modal]
-        ├── FlyerPreview (components/FlyerPreview.tsx)
-        │     └── html2canvas (dynamic import, download only)
-        └── FBMarketplaceCard (components/FBMarketplaceCard.tsx)
+app/layout.tsx                            [root layout, SessionProvider]
+  ├── app/page.tsx                        [landing page with sign-in/sign-up CTAs]
+  ├── app/auth/signin/page.tsx            [sign-in form]
+  ├── app/auth/signup/page.tsx            [sign-up form]
+  ├── app/auth/change-password/page.tsx   [change password form]
+  └── app/app/                            [protected by middleware + layout auth check]
+        └── app/app/page.tsx              [mounts FlyerApp component]
+              └── FlyerApp (components/FlyerApp.tsx)
+                    ├── SetupForm (inline)      [first-run + settings modal]
+                    ├── FlyerPreview (components/FlyerPreview.tsx)
+                    │     └── html2canvas (dynamic import, download only)
+                    └── FBMarketplaceCard (components/FBMarketplaceCard.tsx)
 ```
 
 ### State Management
@@ -384,12 +405,13 @@ All state is local React `useState` in `FlyerApp`. There is no global state mana
 ### API Route: `/api/analyze`
 
 - **Method:** POST
+- **Authentication:** Requires valid NextAuth session (via `getServerSession`)
 - **Request body:** `{ imageBase64: string, mediaType: string, userApiKey?: string }`
 - **Logic:** Uses `userApiKey` if provided; falls back to `process.env.OPENROUTER_API_KEY`
 - **Model:** `nvidia/nemotron-nano-12b-v2-vl:free` via OpenRouter
 - **Prompt:** Returns strict JSON with `flyer.title`, `flyer.description`, `fb.title`, `fb.price`, `fb.description`
 - **Response:** `{ flyer: { title, description }, fb: { title, price, description } }`
-- **Error response:** `{ error: string }` with appropriate HTTP status
+- **Error response:** `{ error: string }` with appropriate HTTP status (401 for unauthorized, 400 for validation errors, 502 for AI failures, 500 for server errors)
 
 ### Flyer Rendering
 
@@ -399,6 +421,7 @@ All state is local React `useState` in `FlyerApp`. There is no global state mana
 - Border radius: 4px
 - Download: html2canvas at `scale: 3` (effective output: 1140px wide), `useCORS: true`, `backgroundColor: '#ede8de'`
 - File naming: `flyer-{Date.now()}.png`
+- **Important:** FlyerPreview.tsx uses inline styles only (not Tailwind classes) to ensure html2canvas PNG export compatibility.
 
 ### Settings Persistence
 
@@ -454,12 +477,12 @@ Since there is no analytics instrumentation in v1.0, these metrics are defined f
 
 ### Technical Constraints
 
-- **T-01: No server-side persistence.** There is no database. All user data (settings) lives in the browser's `localStorage`. This means settings are device-specific and not synced across devices.
+- **T-01: Limited server-side persistence.** User accounts are stored in PostgreSQL. All listing data and app settings live in `localStorage` (device-specific, not synced).
 - **T-02: API key exposure risk.** The shared `OPENROUTER_API_KEY` is a server-side environment variable and never sent to the client. However, the user's own key (if provided) is stored in `localStorage` and sent in request bodies — users should be made aware this key is stored client-side.
 - **T-03: Image size limits.** Images are base64-encoded and sent as part of a JSON request body. Very large images (>10MB original) may hit Next.js request body size limits or OpenRouter payload limits. No client-side compression is implemented in v1.0.
 - **T-04: AI model dependency.** The app uses `nvidia/nemotron-nano-12b-v2-vl:free` exclusively. If this model is removed from OpenRouter's free tier or its output format changes, the JSON parsing will fail.
 - **T-05: html2canvas limitations.** html2canvas cannot render cross-origin images reliably. Image data must be a `data:` URL (base64) — which it is, as the uploaded image is converted to a data URL on selection. Custom fonts loaded via Google Fonts CDN may not render correctly in the downloaded PNG.
-- **T-06: No SSR for the main app.** The root page component uses `'use client'` and relies on `localStorage` and browser APIs. It cannot be server-rendered.
+- **T-06: No SSR for the main app.** The FlyerApp component uses `'use client'` and relies on `localStorage` and browser APIs. It cannot be server-rendered.
 
 ### Business / Operational Constraints
 
@@ -472,7 +495,8 @@ Since there is no analytics instrumentation in v1.0, these metrics are defined f
 - **D-01: Fixed flyer dimensions.** The flyer is always 380px wide. This is intentional to ensure consistent output regardless of screen size.
 - **D-02: Fixed flyer theme.** The beige background (`#ede8de`) and icon-row layout are fixed. Per-listing customization of colors, fonts, or layout is not supported.
 - **D-03: Mobile-first minimum touch targets.** All buttons and interactive controls must maintain >= 44px height to comply with Apple and Google mobile accessibility guidelines.
-- **D-04: No login friction.** Authentication has been explicitly removed. Adding any auth requirement would violate the core design philosophy of the app.
+- **D-04: Minimal auth friction.** Auth is email + password with auto sign-in on registration. No email verification, no CAPTCHA, no MFA in v1.0.
+- **D-05: Inline styles for flyer export.** FlyerPreview.tsx must use inline styles only (not Tailwind classes) to ensure html2canvas can correctly render the PNG export.
 
 ### Dependency Versions (as of v1.0)
 
@@ -480,10 +504,16 @@ Since there is no analytics instrumentation in v1.0, these metrics are defined f
 |---|---|---|
 | `next` | ^15.2.4 | App Router required |
 | `react` / `react-dom` | ^18.3.1 | |
+| `next-auth` | ^4.24.13 | Authentication (Credentials provider) |
+| `bcryptjs` | ^3.0.3 | Password hashing |
+| `@prisma/client` | ^7.7.0 | Database ORM client |
+| `prisma` | ^7.7.0 | Database schema management (CLI) |
+| `zod` | ^4.3.6 | Auth form validation (server-side) |
+| `sonner` | ^2.0.7 | Toast notifications |
 | `openai` | ^6.34.0 | Used as OpenRouter-compatible client |
-| `html2canvas` | ^1.4.1 | Dynamic import to avoid SSR issues |
-| `tailwindcss` | ^3.4.4 | |
-| `typescript` | ^5 | |
+| `html2canvas` | ^1.4.1 | PNG export of flyer (dynamic import to avoid SSR issues) |
+| `tailwindcss` | ^3.4.4 | Styling framework (CSS utilities only; FlyerPreview uses inline styles) |
+| `typescript` | ^5 | Type checking |
 
 ---
 

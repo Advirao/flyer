@@ -44,9 +44,9 @@ export default function FlyerPreview({ data, downloadable = false }: Props) {
   }
 
   return (
-    <div className="flex flex-col items-center gap-4 w-full">
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16, width: '100%' }}>
       {/* Scrollable wrapper so mobile can see the full 380px card */}
-      <div className="overflow-x-auto w-full flex justify-center">
+      <div style={{ overflowX: 'auto', width: '100%', display: 'flex', justifyContent: 'center' }}>
       {/* The actual flyer */}
       <div
         ref={flyerRef}
@@ -158,16 +158,27 @@ export default function FlyerPreview({ data, downloadable = false }: Props) {
         <button
           onClick={handleDownload}
           disabled={downloading}
-          className="w-full sm:w-auto flex items-center justify-center gap-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-300 text-white font-semibold px-6 py-3 rounded-xl transition text-sm shadow"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 8,
+            background: downloading ? '#d1d5db' : '#16a34a',
+            color: '#fff',
+            fontWeight: 600,
+            padding: '12px 24px',
+            borderRadius: 12,
+            border: 'none',
+            cursor: downloading ? 'not-allowed' : 'pointer',
+            fontSize: 14,
+            boxShadow: '0 1px 3px rgba(0,0,0,0.12)',
+            width: '100%',
+          }}
         >
           {downloading ? (
-            <>
-              <span className="animate-spin">⏳</span> Generating…
-            </>
+            <><span>⏳</span> Generating…</>
           ) : (
-            <>
-              <span>⬇️</span> Download Flyer (PNG)
-            </>
+            <><span>⬇️</span> Download Flyer (PNG)</>
           )}
         </button>
       )}

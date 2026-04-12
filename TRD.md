@@ -25,21 +25,22 @@
 
 ## 1. Overview
 
-Flyer Generator is a single-page web application that lets users photograph a physical item for sale and instantly receive a print-ready flyer (PNG) and a ready-to-paste Facebook Marketplace listing. The user uploads a photo, an AI model analyzes it and generates all copy, and the user downloads a flyer or copies the listing — in under a minute.
+Flyer Generator is a web application that lets users sign up, photograph a physical item for sale, and instantly receive a print-ready flyer (PNG) and a ready-to-paste Facebook Marketplace listing. Users create a free account, upload a photo, the AI model analyzes it and generates all copy, and the user downloads a flyer or copies the listing — in under a minute.
 
 ### Goals
 
-- Zero friction: no account, no login, no file storage.
-- Single AI call per image produces all output (flyer copy + FB listing copy).
-- Persistent personal settings (pickup address, contact) via `localStorage` so they never need to be re-entered.
-- Optional Bring-Your-Own-Key (BYOK) for users who want to bypass any shared rate limits.
+- **Account-based access:** Users sign up with email + password stored securely in PostgreSQL.
+- **Quick setup:** Single AI call per image produces all output (flyer copy + FB listing copy).
+- **Persistent settings:** Pickup address and contact stored in `localStorage` (device-level) so they're never re-entered.
+- **Autonomous usage:** Optional Bring-Your-Own-Key (BYOK) for users who want to use their own OpenRouter quota.
+- **Protected API:** All endpoints require authentication via NextAuth JWT sessions.
 
 ### Non-Goals
 
-- No user authentication or multi-user accounts.
+- No third-party OAuth (Google, GitHub, etc.) — email + password only in v1.0.
 - No server-side file storage; images are never persisted.
-- No database.
-- No server-side session or token management.
+- No listing history; all flyer data is ephemeral.
+- No admin dashboard or multi-user management features.
 
 ---
 
@@ -50,65 +51,96 @@ Flyer Generator is a single-page web application that lets users photograph a ph
 │                        Browser (Client)                         │
 │                                                                 │
 │  ┌──────────────────────────────────────────────────────────┐  │
-│  │  Next.js App Router (client components)                  │  │
+│  │  Next.js App Router (client + server components)         │  │
 │  │                                                          │  │
-│  │  FlyerApp.tsx  ──┬──  FlyerPreview.tsx                   │  │
-│  │  (state machine) │    (html2canvas → PNG download)        │  │
-│  │                  └──  FBMarketplaceCard.tsx               │  │
-│  │                        (copy-to-clipboard)               │  │
+│  │  Auth pages:          FlyerApp (protected):              │  │
+│  │  ├── /auth/signin     ├── /app (middleware guarded)      │  │
+│  │  ├── /auth/signup     ├── FlyerPreview                   │  │
+│  │  └── /auth/chg-pwd    ├── FBMarketplaceCard              │  │
+│  │                       └── localStorage: settings          │  │
 │  │                                                          │  │
-│  │  localStorage: { pickupAddress, contact, userApiKey }    │  │
-│  └──────────────────────────────┬───────────────────────────┘  │
-└─────────────────────────────────┼───────────────────────────────┘
-                                  │ POST /api/analyze
-                                  │ { imageBase64, mediaType, userApiKey? }
-┌─────────────────────────────────▼───────────────────────────────┐
-│                     Next.js API Route (Server)                  │
-│                                                                 │
-│  app/api/analyze/route.ts                                       │
-│  ├── Reads userApiKey from body OR process.env.OPENROUTER_API_KEY│
-│  └── Constructs OpenAI-compatible client → OpenRouter           │
-└─────────────────────────────────┬───────────────────────────────┘
-                                  │ HTTPS (OpenAI SDK)
-                                  │ model: nvidia/nemotron-nano-12b-v2-vl:free
-┌─────────────────────────────────▼───────────────────────────────┐
-│                  OpenRouter API  (openrouter.ai/api/v1)         │
-│                                                                 │
-│  Vision-Language Model: nvidia/nemotron-nano-12b-v2-vl:free     │
-│  Returns structured JSON: { flyer: {...}, fb: {...} }           │
-└─────────────────────────────────────────────────────────────────┘
+│  │  JWT session cookie (NextAuth): { id, email }            │  │
+│  └────────────┬─────────────────────────────┬──────────────┘  │
+│               │                             │                 │
+└───────────────┼─────────────────────────────┼─────────────────┘
+                │ POST /api/auth/[...nextauth]
+                │ (login, session callback)
+                │ 
+┌───────────────┼──────────────────────────────────────────────┐
+│               │         Next.js API Routes (Server)          │
+│               │                                              │
+│  /api/auth/[...nextauth]  ──┬──  checks session, issues JWT  │
+│                             │                                 │
+│  /api/analyze             ──┴──  requires session             │
+│  (POST)                        ├─ checks getServerSession()   │
+│  ├─ validates imageBase64      ├─ uses userApiKey or env key  │
+│  ├─ calls OpenRouter           └─ returns { flyer, fb }       │
+│  └─ error handling                                             │
+└──────────┬─────────────────────────────────────────────────────┘
+           │
+           ├──────────────────────┬─────────────────────────────┐
+           │                      │                             │
+┌──────────▼───────────────┐  ┌──▼─────────────────────────┐  │
+│   OpenRouter API         │  │  PostgreSQL (Supabase)     │  │
+│   (openrouter.ai/v1)     │  │  ├─ User (email, hash)     │  │
+│   ├─ model inference     │  │  └─ Prisma ORM             │  │
+│   └─ vision analysis     │  └────────────────────────────┘  │
+└──────────────────────────┘                                   │
 ```
 
 ### Routing
 
 | Route | Type | Description |
 |---|---|---|
-| `/` | Client page | Renders `<FlyerApp />` |
-| `/api/analyze` | Server route (POST) | Proxies image to OpenRouter, returns generated copy |
+| `/` | Client page (public) | Landing page with sign-in/sign-up CTAs |
+| `/auth/signin` | Client page (public) | Sign-in form |
+| `/auth/signup` | Client page (public) | Sign-up form |
+| `/auth/change-password` | Client page (protected) | Change password form (middleware guards) |
+| `/app/*` | Client page (protected) | Flyer app (middleware redirects to `/auth/signin` if not authenticated) |
+| `/api/auth/[...nextauth]` | Server route (public) | NextAuth handler (sign-in, session, etc.) |
+| `/api/analyze` | Server route (protected) | Proxies image to OpenRouter, returns `{ flyer, fb }`. Requires valid session. |
 
-All other routes are undefined; the app is effectively a single-page experience.
+All authentication uses NextAuth with JWT strategy (no server sessions).
 
 ---
 
 ## 3. Component Design
 
-### 3.1 `app/page.tsx`
+### 3.1 `app/page.tsx` — Landing Page
 
-Thin shell. Marks the route as `'use client'` and renders `<FlyerApp />`. No props, no logic.
+**Public route.** Marketing page with sign-in/sign-up CTAs. Includes:
+- Feature cards (Upload, AI writes copy, Download/share)
+- How-it-works steps
+- Schema.org JSON-LD for SEO
+- Links to `/auth/signin` and `/auth/signup`
 
-```tsx
-'use client'
-import FlyerApp from '@/components/FlyerApp'
-export default function Home() {
-  return <FlyerApp />
-}
-```
+No authentication required.
 
-### 3.2 `app/layout.tsx`
+### 3.2 `app/auth/signin/page.tsx` — Sign In
 
-Minimal root layout. Sets `<html lang="en">` and injects global CSS. Exports standard Next.js `Metadata` (`title`, `description`). No auth wrappers.
+**Public route.** Renders `<AuthForm mode="signin" />`. On successful sign-in via NextAuth Credentials provider, redirects to `/app`.
 
-### 3.3 `components/FlyerApp.tsx`
+### 3.3 `app/auth/signup/page.tsx` — Sign Up
+
+**Public route.** Renders `<AuthForm mode="signup" />`. On successful sign-up, auto-signs in the user (stale closure fix: credentials stored in ref) and redirects to `/app`. If auto-signin fails, redirects to `/auth/signin?registered=1`.
+
+### 3.4 `app/auth/change-password/page.tsx` — Change Password
+
+**Protected route** (middleware guards). Authenticated users only. Renders change-password form. Validates current password via bcrypt before accepting new password.
+
+### 3.5 `app/app/page.tsx` — Protected Flyer App
+
+**Protected route** (middleware guards). Unauthenticated users are redirected to `/auth/signin`. Renders `<FlyerApp />` component.
+
+### 3.6 `app/layout.tsx`
+
+Root layout. Wraps children with:
+- `<Providers>` — NextAuth `<SessionProvider>`
+- `<Toaster>` — Sonner toast notifications
+
+Exports metadata (title, description, OG tags, robots directives).
+
+### 3.7 `components/FlyerApp.tsx`
 
 **The central component.** Owns all application state and orchestrates the step-based user flow.
 
@@ -192,9 +224,9 @@ const canPreview =
 | `TabBtn` | Pill-style tab button for the preview step |
 | `SetupForm` | Reused for both the initial setup screen and the settings modal |
 
-### 3.4 `components/FlyerPreview.tsx`
+### 3.8 `components/FlyerPreview.tsx`
 
-Renders the printable flyer card and, when `downloadable={true}`, a "Download Flyer (PNG)" button.
+Renders the printable flyer card. When `downloadable={true}`, also shows a "Download Flyer (PNG)" button.
 
 #### Layout (fixed 380px width)
 
@@ -212,7 +244,7 @@ Renders the printable flyer card and, when `downloadable={true}`, a "Download Fl
 └─────────────────────────────┘
 ```
 
-**Critical design constraint:** All styles are applied as inline `style={{...}}` objects rather than Tailwind classes. This is required because `html2canvas` renders CSS from computed styles; Tailwind's JIT output is reliable at runtime but not guaranteed to survive canvas rasterization. Only the outer wrapper and the download button use Tailwind.
+**Critical design constraint:** All flyer styles are applied as inline `style={{...}}` objects (not Tailwind classes). This is required because `html2canvas` renders CSS from computed styles; Tailwind's JIT output is reliable at runtime but may not survive canvas rasterization. Only the outer wrapper and download button use Tailwind. **See constraint D-05 in PRD.md.**
 
 #### Download mechanism
 
@@ -233,7 +265,7 @@ link.click()
 
 `html2canvas` is dynamically imported to avoid including it in the initial JS bundle.
 
-### 3.5 `components/FBMarketplaceCard.tsx`
+### 3.9 `components/FBMarketplaceCard.tsx`
 
 Renders a mock Facebook Marketplace listing card and a set of copy-to-clipboard controls.
 
@@ -262,10 +294,13 @@ This means the AI-generated description deliberately excludes location/contact; 
 
 **File:** `app/api/analyze/route.ts`
 
+**Authentication:** Requires valid NextAuth session (checked via `getServerSession(authOptions)`). Returns HTTP 401 if not authenticated.
+
 #### Request
 
 ```
 Content-Type: application/json
+Authorization: Bearer <NextAuth JWT session cookie>
 ```
 
 ```json
@@ -306,9 +341,12 @@ Content-Type: application/json
 
 | HTTP Status | Condition |
 |---|---|
-| `400` | `imageBase64` or `mediaType` missing from request body |
+| `401` | No valid NextAuth session (user not authenticated) |
+| `400` | `imageBase64` or `mediaType` missing; or unsupported `mediaType` |
+| `413` | Image too large (base64 > 14 MB) |
 | `500` | No API key available (neither `userApiKey` nor env var set) |
-| `500` | OpenRouter API call failed or response JSON could not be parsed |
+| `502` | OpenRouter API call failed or response JSON could not be parsed |
+| `500` | Unexpected server error |
 
 #### AI prompt
 
@@ -458,33 +496,52 @@ Key: `"flyerSettings"`. Written on every settings save. Read once on mount. Neve
 
 ## 7. Security Considerations
 
-### 7.1 API key handling
+### 7.1 Authentication & sessions
 
-- The server-side `OPENROUTER_API_KEY` environment variable is never transmitted to the browser. It is only read inside the Next.js API route, which runs in Node.js on the server.
-- When a user provides their own key via the BYOK field, it is:
+- **NextAuth JWT strategy:** Sessions are stateless JWT tokens stored in secure, HTTP-only cookies.
+- **Startup guard:** `NEXTAUTH_SECRET` is validated on server startup in `lib/auth.ts`; the app will not start without it.
+- **Credentials provider:** Email + password only (no third-party OAuth in v1.0).
+- **Password hashing:** bcryptjs with cost factor 12 (secure, slightly slower but acceptable for sign-in).
+- **Protected routes:** Middleware in `middleware.ts` protects `/app/*` and `/auth/change-password`. Unauthenticated users are redirected to `/auth/signin`.
+- **API authentication:** `/api/analyze` and `/api/auth/[...nextauth]` check `getServerSession()` before processing.
+
+### 7.2 API key handling
+
+- The server-side `OPENROUTER_API_KEY` environment variable is never transmitted to the browser. It is only read inside the Next.js API route (`app/api/analyze/route.ts`) on the server.
+- When a user provides their own key via the BYOK field:
   1. Stored in `localStorage` (client-side only, never sent to any server other than OpenRouter).
   2. Transmitted to `/api/analyze` in the JSON request body over HTTPS.
   3. Used in the server route and immediately discarded — it is not logged, cached, or stored server-side.
 - The BYOK field uses `type="password"` with a toggle to prevent shoulder-surfing.
 
-### 7.2 Image data
+### 7.3 Image data
 
 - Images are converted to base64 and sent to `/api/analyze` which forwards them to OpenRouter. No image data is written to disk or stored server-side.
 - The base64 payload is held in memory only for the duration of the request.
+- Maximum base64 size: 14 MB (validated server-side); returns HTTP 413 if exceeded.
 
-### 7.3 No authentication
+### 7.4 Database security
 
-The application has no authentication layer. The API route is publicly accessible. Rate limiting is delegated entirely to OpenRouter (per-key or IP-based, depending on the key in use).
+- PostgreSQL connection is via TLS (standard for cloud providers like Supabase).
+- User emails are unique-indexed for efficient lookups.
+- Passwords are hashed with bcryptjs before storage; plain passwords are never stored.
+- Prisma ORM prevents SQL injection via parameterized queries.
 
-### 7.4 Input validation
+### 7.5 Input validation
 
-- The API route validates that `imageBase64` and `mediaType` are present; missing fields return HTTP 400.
-- There is no server-side validation of `mediaType` beyond presence. Malformed base64 will cause the OpenRouter call to fail, which is caught and returned as HTTP 500.
+- Sign-up form: Zod schema validates email format, password strength (min 8 chars, 1 uppercase, 1 number).
+- Change-password form: Validates current password via bcrypt before accepting new password.
+- `/api/analyze`:
+  - Validates `imageBase64` and `mediaType` presence.
+  - Validates `mediaType` against allowlist (JPEG, PNG, WebP, GIF).
+  - Validates base64 character set and length.
+  - Catches JSON parse errors and returns HTTP 502 (Bad Gateway).
 - All user-editable text fields (`title`, `description`, `price`, `pickupAddress`, `contact`) are rendered as text content, not as `innerHTML`, eliminating XSS risk.
 
-### 7.5 Unused leftover environment variables
+### 7.6 Content Security Policy
 
-`.env.local` contains `NEXTAUTH_SECRET`, `NEXTAUTH_URL`, and `AUTH_USERS` from a prior authentication prototype. These are not read anywhere in the current codebase and have no effect. They should be removed to avoid confusion but pose no security risk in isolation.
+- `next.config.js` enforces a strict CSP that blocks inline scripts and external script sources (no `unsafe-eval`).
+- Prevents XSS attacks and limits the impact of compromised dependencies.
 
 ---
 
@@ -527,30 +584,34 @@ There is no caching at the API layer. Each image upload triggers a fresh model c
 | `next` | ^15.2.4 | Framework (App Router, API Routes, SSR) |
 | `react` | ^18.3.1 | UI library |
 | `react-dom` | ^18.3.1 | DOM renderer |
+| `next-auth` | ^4.24.13 | Authentication (JWT sessions, Credentials provider) |
+| `@prisma/client` | ^7.7.0 | Database ORM client (PostgreSQL) |
+| `bcryptjs` | ^3.0.3 | Password hashing (cost factor 12) |
+| `zod` | ^4.3.6 | Server-side form validation (auth forms) |
 | `openai` | ^6.34.0 | OpenAI-compatible SDK used to call OpenRouter |
 | `html2canvas` | ^1.4.1 | DOM-to-canvas rasterizer for PNG export |
-| `next-auth` | ^4.24.13 | Unused (leftover dependency, safe to remove) |
-| `bcryptjs` | ^3.0.3 | Unused (leftover dependency, safe to remove) |
-| `@google/generative-ai` | ^0.24.1 | Unused (leftover dependency, safe to remove) |
+| `sonner` | ^2.0.7 | Toast notifications (auth feedback) |
 
 ### 9.2 Dev dependencies
 
 | Package | Version | Purpose |
 |---|---|---|
 | `typescript` | ^5 | Type checking |
+| `prisma` | ^7.7.0 | Database schema management (CLI, migrations) |
 | `tailwindcss` | ^3.4.4 | Utility CSS (UI only; not used in flyer card) |
 | `postcss` | ^8.4.38 | CSS processing pipeline for Tailwind |
 | `autoprefixer` | ^10.4.19 | CSS vendor prefixes |
 | `@types/node` | ^20 | Node.js type definitions |
 | `@types/react` | ^18 | React type definitions |
 | `@types/react-dom` | ^18 | React DOM type definitions |
-| `@types/bcryptjs` | ^2.4.6 | Unused (matches unused bcryptjs) |
+| `@types/bcryptjs` | ^2.4.6 | Type definitions for bcryptjs |
 
 ### 9.3 External services
 
 | Service | Usage | Authentication |
 |---|---|---|
-| OpenRouter (`openrouter.ai/api/v1`) | AI model inference | API key (env var or BYOK) |
+| OpenRouter (`openrouter.ai/api/v1`) | AI vision model inference | API key (env var or BYOK) |
+| PostgreSQL (Supabase, etc.) | User accounts, auth state | Connection string with TLS |
 
 ---
 
@@ -559,28 +620,44 @@ There is no caching at the API layer. Each image upload triggers a fresh model c
 ### `.env.local` (local development)
 
 ```env
-# Required: server-side API key for OpenRouter
-OPENROUTER_API_KEY=sk-or-v1-...
+# Database (PostgreSQL)
+DATABASE_URL=postgresql://user:password@localhost:5432/flyer
+DIRECT_URL=postgresql://user:password@localhost:5432/flyer
 
-# --- Unused leftovers from a prior auth prototype ---
-# These have no effect and can be removed.
-NEXTAUTH_SECRET=some-secret
+# Authentication (NextAuth)
+NEXTAUTH_SECRET=generate-with-openssl-rand-hex-32  # e.g. openssl rand -hex 32
 NEXTAUTH_URL=http://localhost:3000
-AUTH_USERS=user1:hash1,user2:hash2
+
+# AI (OpenRouter)
+OPENROUTER_API_KEY=sk-or-v1-your-key-here
 ```
 
 ### Variable reference
 
 | Variable | Required | Used by | Description |
 |---|---|---|---|
+| `DATABASE_URL` | Yes | Prisma client (all routes) | PostgreSQL connection string (can include connection pooling via pgbouncer) |
+| `DIRECT_URL` | Yes (Vercel/serverless) | `prisma migrate` CLI | Direct PostgreSQL connection without pooling (required for Prisma migrations on serverless) |
+| `NEXTAUTH_SECRET` | Yes | `lib/auth.ts` startup check, NextAuth middleware | JWT session secret. Validated on server startup. Generate via `openssl rand -hex 32`. Must be exactly 64 hex characters. |
+| `NEXTAUTH_URL` | Yes (production) | NextAuth callbacks (OAuth redirects, etc.) | Full public URL of the app (e.g. `http://localhost:3000` locally, `https://flyer.vercel.app` in production) |
 | `OPENROUTER_API_KEY` | Yes (unless all users provide BYOK) | `app/api/analyze/route.ts` | Default OpenRouter API key used when no `userApiKey` is supplied in the request |
-| `NEXTAUTH_SECRET` | No | Nothing | Unused leftover |
-| `NEXTAUTH_URL` | No | Nothing | Unused leftover |
-| `AUTH_USERS` | No | Nothing | Unused leftover |
+
+**Notes:**
+- **Local dev:** Both `DATABASE_URL` and `DIRECT_URL` can be identical if using a direct PostgreSQL connection.
+- **Vercel + Supabase:** Supabase requires both: `DATABASE_URL` uses the connection pooling URL (with pgbouncer), `DIRECT_URL` uses the direct connection (for migrations).
+- **NEXTAUTH_SECRET startup guard:** If not set, the app crashes at server startup with a clear error message.
 
 ### Production (Vercel)
 
-Set `OPENROUTER_API_KEY` in **Project Settings → Environment Variables** with scope `Production` (and optionally `Preview`). Do not commit `.env.local` to source control.
+1. In Vercel project settings, go to **Settings → Environment Variables**.
+2. Add all five variables above with scope `Production` (and optionally `Preview`).
+3. Do not commit `.env.local` to source control.
+4. Example Supabase setup:
+   - `DATABASE_URL`: Copy from Supabase project "Connection Pooling" URL.
+   - `DIRECT_URL`: Copy from Supabase project "Direct connection" URL.
+   - `NEXTAUTH_SECRET`: Generate locally and paste.
+   - `NEXTAUTH_URL`: Your Vercel deployment URL (e.g. `https://my-flyer.vercel.app`).
+   - `OPENROUTER_API_KEY`: Your OpenRouter API key.
 
 ---
 
@@ -589,74 +666,119 @@ Set `OPENROUTER_API_KEY` in **Project Settings → Environment Variables** with 
 ### 11.1 Local development
 
 ```bash
-# Install dependencies
+# 1. Install dependencies
 npm install
 
-# Create environment file
-cp .env.example .env.local   # or create manually
-# Add: OPENROUTER_API_KEY=sk-or-v1-...
+# 2. Set up environment file
+cat > .env.local << 'EOF'
+DATABASE_URL=postgresql://user:password@localhost:5432/flyer
+DIRECT_URL=postgresql://user:password@localhost:5432/flyer
+NEXTAUTH_SECRET=$(openssl rand -hex 32)
+NEXTAUTH_URL=http://localhost:3000
+OPENROUTER_API_KEY=sk-or-v1-your-key
+EOF
 
-# Start dev server
+# 3. Set up database (create tables from Prisma schema)
+npx prisma migrate dev --name init
+
+# 4. Start dev server
 npm run dev
 # → http://localhost:3000
 ```
 
+The postinstall hook in `package.json` automatically runs `prisma generate` to create the Prisma client.
+
 ### 11.2 Production build (local verification)
 
 ```bash
-npm run build   # Type-checks + compiles
+npm run build   # Type-checks, compiles, generates Prisma client
 npm run start   # Serves on http://localhost:3000
 ```
 
 ### 11.3 Vercel deployment (recommended)
 
-1. Push the repository to GitHub (or GitLab/Bitbucket).
-2. Import the project at [vercel.com/new](https://vercel.com/new).
-3. Vercel auto-detects Next.js; no build configuration changes needed.
-4. Add environment variable:
-   - Name: `OPENROUTER_API_KEY`
-   - Value: your OpenRouter key
-   - Environments: Production, Preview
-5. Deploy. The API route runs as a Vercel Serverless Function.
+1. **Push the repository to GitHub** (or GitLab/Bitbucket).
+
+2. **Set up PostgreSQL** (recommended: [Supabase](https://supabase.com)):
+   - Create a Supabase project and database.
+   - Copy the connection pooling URL and direct connection URL.
+
+3. **Import the project at [vercel.com/new](https://vercel.com/new):**
+   - Select the GitHub repo.
+   - Vercel auto-detects Next.js; no build configuration changes needed.
+
+4. **Add environment variables** in Vercel project settings (scope: `Production` + `Preview`):
+   - `DATABASE_URL`: Supabase connection pooling URL (for client connections)
+   - `DIRECT_URL`: Supabase direct connection URL (for migrations)
+   - `NEXTAUTH_SECRET`: Generate locally via `openssl rand -hex 32`
+   - `NEXTAUTH_URL`: Your Vercel deployment URL (e.g. `https://my-flyer.vercel.app`)
+   - `OPENROUTER_API_KEY`: Your OpenRouter API key
+
+5. **Deploy:**
+   - Vercel auto-detects Next.js and runs `next build`.
+   - The postinstall hook runs `prisma generate`.
+   - After the first deployment, manually run the Prisma migration to set up the database:
+     ```bash
+     # One time only:
+     npx prisma migrate deploy
+     ```
+   - Subsequent deployments run migrations automatically if schema changes are detected.
+
+6. **Verify:**
+   - Visit your Vercel deployment URL.
+   - Try signing up and running the flyer generator.
+   - Check Supabase project → Tables → `User` to confirm accounts are being created.
 
 ### 11.4 Other Node.js hosts
 
 Any host that supports Next.js 15 and Node.js 20+ will work. Ensure:
-- The `OPENROUTER_API_KEY` environment variable is injected at build/runtime.
-- The host does not impose a request body size limit smaller than the base64-encoded images you expect (default is typically 4–8 MB; adjust if needed).
-- The API route timeout is at least 30 seconds to accommodate slow model inference.
+- All five environment variables are set (see section 10).
+- PostgreSQL is accessible from your host (with TLS recommended).
+- Request body size limits accommodate base64-encoded images (~14 MB max; adjust if needed).
+- API route timeout is at least 30 seconds (for OpenRouter model inference).
+- The `postinstall` hook runs to generate the Prisma client.
 
 ### 11.5 Vercel serverless function timeout
 
-By default, Vercel Hobby plan functions time out at 10 seconds. The free OpenRouter model can take up to 15+ seconds. Consider:
-- Upgrading to Vercel Pro (60-second timeout).
-- Or adding `export const maxDuration = 60` to `app/api/analyze/route.ts` (requires Pro plan).
+By default, Vercel Hobby plan functions time out at 10 seconds. The free OpenRouter model can take 3–15 seconds depending on load. Options:
+- Upgrade to Vercel Pro ($20/month) for 60-second timeout.
+- Or add `export const maxDuration = 60` to `app/api/analyze/route.ts` (requires Pro plan).
+- Or use a paid OpenRouter model for faster inference.
 
 ---
 
 ## 12. Known Limitations
 
-### 12.1 Free model rate limits
+### 12.1 Database cold starts
 
-`nvidia/nemotron-nano-12b-v2-vl:free` on OpenRouter is subject to undocumented rate limits that vary with demand. Users may see HTTP 429 or timeout errors during peak hours. Mitigation options:
-- The BYOK feature allows users to use their own OpenRouter key.
+On Vercel, the first database query after a deployment or idle period may experience latency due to connection pooling. This is mitigated by:
+- Using Supabase's pgbouncer connection pooling (configured in `DATABASE_URL`).
+- Connection reuse within the same serverless function invocation.
+- Keeping `DIRECT_URL` for migrations only (avoids pooling overhead for schema changes).
+
+### 12.2 Free OpenRouter model rate limits
+
+`nvidia/nemotron-nano-12b-v2-vl:free` is subject to undocumented rate limits that vary with demand. Users may see HTTP 429 or timeout errors during peak hours. Mitigation options:
+- The BYOK feature allows users to use their own OpenRouter key (higher quota).
 - A paid model (e.g. `openai/gpt-4o-mini`) can be substituted in `app/api/analyze/route.ts` for more consistent availability.
+- Monitor OpenRouter status for quota warnings.
 
-### 12.2 JSON output reliability
+### 12.3 JSON output reliability
 
-The model is instructed to return only raw JSON. It occasionally wraps output in markdown code fences (handled) or includes extra commentary outside the JSON (not handled — will cause a parse error returned as HTTP 500). If this is frequent, a more robust extraction strategy (e.g., regex `/{[\s\S]*}/` to extract the first JSON object) could improve resilience.
+The model is instructed to return only raw JSON. It occasionally wraps output in markdown code fences (handled via `replace(/```/g, '')`) or includes extra commentary outside the JSON (not handled — will cause a parse error returned as HTTP 502). If this is frequent, a more robust extraction strategy (e.g., regex `/{[\s\S]*}/` to extract the first JSON object) could improve resilience.
 
-### 12.3 html2canvas and emoji rendering
+### 12.4 html2canvas and emoji rendering
 
 The flyer card uses emoji characters as decorative icons (🗒️, 💲, 📍, ✉️). `html2canvas` renders these via the operating system's emoji font. On headless/server environments and some Linux deployments this may produce blank squares. This is not a concern for Vercel (client-side rendering) but is relevant if server-side screenshot generation is ever added.
 
-### 12.4 Large image payloads
+### 12.5 Large image payloads
 
-There is no client-side image compression. A 10 MB smartphone photo will be sent as ~13 MB of base64 JSON. This can hit Vercel's 4.5 MB default body size limit for API routes. To resolve:
+There is no client-side image compression. A 10 MB smartphone photo will be sent as ~13 MB of base64 JSON. The app enforces a maximum base64 length of 14 MB (HTTP 413 if exceeded). Vercel's default body size is 6 MB for Hobby plan. To handle larger images:
 - Add client-side canvas resizing before encoding (recommended).
-- Or increase the body size limit via Next.js route config: `export const config = { api: { bodyParser: { sizeLimit: '15mb' } } }`.
+- Or upgrade to Vercel Pro for a higher body size limit.
+- Or configure a custom Next.js route limit in `app/api/analyze/route.ts`.
 
-### 12.5 localStorage availability
+### 12.6 localStorage availability
 
 Settings persistence relies on `localStorage`. The app will fail silently if:
 - The browser blocks `localStorage` (private browsing with certain settings).
@@ -664,18 +786,22 @@ Settings persistence relies on `localStorage`. The app will fail silently if:
 
 The `useEffect` that reads from `localStorage` has no error boundary; a `try/catch` wrapper would improve robustness.
 
-### 12.6 No offline support
+### 12.7 No offline support
 
-The app has no service worker or offline caching. The AI analysis step requires network access. If OpenRouter is unreachable, the user sees an error banner and must fill in fields manually.
+The app has no service worker or offline caching. The AI analysis step requires network access. If OpenRouter is unreachable, the user sees an error banner and must fill in fields manually. Same for database access (auth will fail if PostgreSQL is unreachable).
 
-### 12.7 Single-image, single-listing
+### 12.8 Single-image, single-listing
 
-The app is designed for one item at a time. There is no batch mode, no history, and no way to revisit a previously analyzed item after navigating away. All state is ephemeral (except settings).
+The app is designed for one item at a time. There is no batch mode, no history, and no way to revisit a previously analyzed item after navigating away. All listing data is ephemeral (except user account in database).
 
-### 12.8 Unused dependencies
+### 12.9 No email verification on sign-up
 
-`next-auth`, `bcryptjs`, `@google/generative-ai`, and `@types/bcryptjs` are installed but unused. They increase bundle size and introduce transitive dependency maintenance burden. Removing them is recommended:
+Accounts are created and active immediately without email verification. This is intentional for low friction but means users can sign up with typo'd email addresses. Adding email verification is out of scope for v1.0.
 
-```bash
-npm uninstall next-auth bcryptjs @google/generative-ai @types/bcryptjs
-```
+### 12.10 No account deletion
+
+Users cannot delete their accounts or data via the UI. This is a v1.0 limitation; implement via admin tools or a future `/api/user/delete` endpoint if needed.
+
+### 12.11 No password reset
+
+There is no "Forgot password" flow. Users must manually set a new password via the "Change password" page (requires being logged in). A password-reset feature would require email delivery (out of scope for v1.0).

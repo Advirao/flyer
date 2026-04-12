@@ -1,12 +1,37 @@
 import OpenAI from 'openai'
 import { NextRequest, NextResponse } from 'next/server'
+import { getServerSession } from 'next-auth'
+import { authOptions } from '@/lib/auth'
+
+const ALLOWED_MEDIA_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif'])
+const MAX_BASE64_LENGTH = 14_000_000 // ~10MB image
 
 export async function POST(req: NextRequest) {
+  const session = await getServerSession(authOptions)
+  if (!session) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
   try {
     const { imageBase64, mediaType, userApiKey } = await req.json()
 
     if (!imageBase64 || !mediaType) {
       return NextResponse.json({ error: 'Missing image data' }, { status: 400 })
+    }
+
+    // Validate mediaType against allowlist
+    if (!ALLOWED_MEDIA_TYPES.has(mediaType)) {
+      return NextResponse.json({ error: 'Unsupported image format' }, { status: 400 })
+    }
+
+    // Validate base64 size
+    if (typeof imageBase64 !== 'string' || imageBase64.length > MAX_BASE64_LENGTH) {
+      return NextResponse.json({ error: 'Image too large (max ~10MB)' }, { status: 413 })
+    }
+
+    // Validate base64 characters
+    if (!/^[A-Za-z0-9+/=]+$/.test(imageBase64)) {
+      return NextResponse.json({ error: 'Invalid image data' }, { status: 400 })
     }
 
     // Use the user's own key if provided, otherwise fall back to the server key
@@ -60,14 +85,23 @@ export async function POST(req: NextRequest) {
       .replace(/```\s*$/i, '')
       .trim()
 
-    const parsed = JSON.parse(jsonStr)
+    let parsed: { flyer?: { title?: string; description?: string }; fb?: { title?: string; price?: string; description?: string } }
+    try {
+      parsed = JSON.parse(jsonStr)
+    } catch {
+      return NextResponse.json({ error: 'AI returned an unexpected response. Please try again.' }, { status: 502 })
+    }
+
+    if (!parsed?.flyer?.title || !parsed?.fb?.title) {
+      return NextResponse.json({ error: 'AI response was incomplete. Please try again.' }, { status: 502 })
+    }
+
     return NextResponse.json({
-      flyer: { title: parsed.flyer.title, description: parsed.flyer.description },
-      fb: { title: parsed.fb.title, price: parsed.fb.price, description: parsed.fb.description },
+      flyer: { title: parsed.flyer.title, description: parsed.flyer.description ?? '' },
+      fb: { title: parsed.fb.title, price: parsed.fb.price ?? '', description: parsed.fb.description ?? '' },
     })
   } catch (err: unknown) {
-    console.error('Analyze error:', err)
-    const message = err instanceof Error ? err.message : 'Analysis failed'
-    return NextResponse.json({ error: message }, { status: 500 })
+    console.error('Analyze error:', err instanceof Error ? err.message : 'Unknown error')
+    return NextResponse.json({ error: 'Analysis failed. Please try again.' }, { status: 500 })
   }
 }
