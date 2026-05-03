@@ -81,6 +81,15 @@ export default function FlyerApp() {
 
   const handleImageSelect = useCallback(async (file: File) => {
     setAnalyzeError('')
+
+    // HEIC/HEIF files from iPhone have no MIME type in browsers — reject early with a clear message
+    const ext = file.name.split('.').pop()?.toLowerCase() ?? ''
+    if (!file.type && (ext === 'heic' || ext === 'heif')) {
+      setAnalyzeError('HEIC photos from iPhone aren\'t supported by web browsers. In your Photos app tap Share → "Export as JPEG", then upload the JPEG.')
+      setStep('details')
+      return
+    }
+
     setStep('details')
     setFlyerTitle('')
     setFlyerDescription('')
@@ -100,7 +109,7 @@ export default function FlyerApp() {
       r.onload = () => resolve((r.result as string).split(',')[1])
       r.readAsDataURL(file)
     })
-    const mediaType = file.type as 'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif'
+    const mediaType = (file.type || 'image/jpeg') as 'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif'
 
     setAnalyzing(true)
     try {
