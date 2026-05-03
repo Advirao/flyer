@@ -6,9 +6,12 @@ import Link from 'next/link'
 import FlyerPreview from './FlyerPreview'
 import FBMarketplaceCard from './FBMarketplaceCard'
 
+type Provider = 'openrouter' | 'claude' | 'openai' | 'gemini'
+
 interface Settings {
   pickupAddress: string
   contact: string
+  provider?: Provider
   userApiKey?: string
 }
 
@@ -116,7 +119,7 @@ export default function FlyerApp() {
       const res = await fetch('/api/analyze', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ imageBase64: base64, mediaType, userApiKey: settings.userApiKey }),
+        body: JSON.stringify({ imageBase64: base64, mediaType, userApiKey: settings.userApiKey, provider: settings.provider ?? 'openrouter' }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Analysis failed')
@@ -464,6 +467,33 @@ function TabBtn({ active, onClick, children }: { active: boolean; onClick: () =>
   )
 }
 
+const PROVIDER_CONFIG: Record<Provider, { label: string; placeholder: string; hint: string; requiresKey: boolean }> = {
+  openrouter: {
+    label: 'OpenRouter',
+    placeholder: 'sk-or-v1-... (leave blank to use the shared key)',
+    hint: 'Free key at openrouter.ai → Keys. Leave blank to use the shared key (slower).',
+    requiresKey: false,
+  },
+  claude: {
+    label: 'Claude (Anthropic)',
+    placeholder: 'sk-ant-api03-...',
+    hint: 'Get a key at console.anthropic.com → API Keys. Fast & accurate.',
+    requiresKey: true,
+  },
+  openai: {
+    label: 'OpenAI',
+    placeholder: 'sk-...',
+    hint: 'Get a key at platform.openai.com → API Keys. Uses gpt-4o-mini.',
+    requiresKey: true,
+  },
+  gemini: {
+    label: 'Gemini (Google)',
+    placeholder: 'AIza...',
+    hint: 'Get a free key at aistudio.google.com → Get API Key. Uses gemini-2.0-flash.',
+    requiresKey: true,
+  },
+}
+
 function SetupForm({
   draft,
   onChange,
@@ -476,7 +506,11 @@ function SetupForm({
   label: string
 }) {
   const [showKey, setShowKey] = useState(false)
-  const valid = draft.pickupAddress.trim() && draft.contact.trim()
+  const provider: Provider = draft.provider ?? 'openrouter'
+  const cfg = PROVIDER_CONFIG[provider]
+  const valid = draft.pickupAddress.trim() && draft.contact.trim() &&
+    (!cfg.requiresKey || (draft.userApiKey ?? '').trim().length > 0)
+
   return (
     <div className="space-y-4">
       <div>
@@ -498,30 +532,43 @@ function SetupForm({
         />
       </div>
 
-      {/* Optional API key */}
-      <div className="border-t border-gray-100 pt-4">
-        <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">
-          OpenRouter API Key <span className="normal-case font-normal text-gray-400">(optional — uses shared key if blank)</span>
-        </label>
-        <div className="relative">
-          <input
-            type={showKey ? 'text' : 'password'}
-            value={draft.userApiKey ?? ''}
-            onChange={(e) => onChange({ ...draft, userApiKey: e.target.value })}
-            placeholder="sk-or-v1-... (leave blank to use the shared key)"
-            className="w-full border border-gray-200 rounded-lg px-3 pr-16 py-2.5 text-base focus:outline-none focus:ring-2 focus:ring-blue-400"
-          />
-          <button
-            type="button"
-            onClick={() => setShowKey(p => !p)}
-            className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-400 hover:text-gray-700 px-1"
+      {/* AI Provider */}
+      <div className="border-t border-gray-100 pt-4 space-y-3">
+        <div>
+          <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">AI Provider</label>
+          <select
+            value={provider}
+            onChange={(e) => onChange({ ...draft, provider: e.target.value as Provider, userApiKey: '' })}
+            className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-base focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white"
           >
-            {showKey ? 'Hide' : 'Show'}
-          </button>
+            {(Object.keys(PROVIDER_CONFIG) as Provider[]).map(p => (
+              <option key={p} value={p}>{PROVIDER_CONFIG[p].label}</option>
+            ))}
+          </select>
         </div>
-        <p className="text-xs text-gray-400 mt-1">
-          Get a free key at <span className="font-medium text-gray-500">openrouter.ai</span> → Keys
-        </p>
+
+        <div>
+          <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">
+            API Key{!cfg.requiresKey && <span className="normal-case font-normal text-gray-400"> (optional)</span>}
+          </label>
+          <div className="relative">
+            <input
+              type={showKey ? 'text' : 'password'}
+              value={draft.userApiKey ?? ''}
+              onChange={(e) => onChange({ ...draft, userApiKey: e.target.value })}
+              placeholder={cfg.placeholder}
+              className="w-full border border-gray-200 rounded-lg px-3 pr-16 py-2.5 text-base focus:outline-none focus:ring-2 focus:ring-blue-400"
+            />
+            <button
+              type="button"
+              onClick={() => setShowKey(p => !p)}
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-400 hover:text-gray-700 px-1"
+            >
+              {showKey ? 'Hide' : 'Show'}
+            </button>
+          </div>
+          <p className="text-xs text-gray-400 mt-1">{cfg.hint}</p>
+        </div>
       </div>
 
       <button
