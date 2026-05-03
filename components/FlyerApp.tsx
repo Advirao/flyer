@@ -101,18 +101,9 @@ export default function FlyerApp() {
     setFbDescription('')
     setPrice('')
 
-    // Preview
-    const reader = new FileReader()
-    reader.onload = (e) => setImageDataUrl(e.target?.result as string)
-    reader.readAsDataURL(file)
-
-    // Base64 for API
-    const base64 = await new Promise<string>((resolve) => {
-      const r = new FileReader()
-      r.onload = () => resolve((r.result as string).split(',')[1])
-      r.readAsDataURL(file)
-    })
-    const mediaType = (file.type || 'image/jpeg') as 'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif'
+    // Compress image client-side (max 1200px, JPEG 85%) to stay under Vercel's 4.5MB body limit
+    const { dataUrl, base64, mediaType } = await compressImage(file)
+    setImageDataUrl(dataUrl)
 
     setAnalyzing(true)
     try {
@@ -580,4 +571,38 @@ function SetupForm({
       </button>
     </div>
   )
+}
+
+// Resize + compress image to stay under Vercel's 4.5MB serverless body limit.
+// Caps longest side at 1200px and re-encodes as JPEG at 85% quality.
+async function compressImage(file: File): Promise<{ dataUrl: string; base64: string; mediaType: 'image/jpeg' }> {
+  const dataUrl = await new Promise<string>((resolve, reject) => {
+    const r = new FileReader()
+    r.onload = () => resolve(r.result as string)
+    r.onerror = reject
+    r.readAsDataURL(file)
+  })
+
+  const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+    const el = new Image()
+    el.onload = () => resolve(el)
+    el.onerror = reject
+    el.src = dataUrl
+  })
+
+  const MAX = 1200
+  let { width, height } = img
+  if (width > MAX || height > MAX) {
+    if (width > height) { height = Math.round((height * MAX) / width); width = MAX }
+    else { width = Math.round((width * MAX) / height); height = MAX }
+  }
+
+  const canvas = document.createElement('canvas')
+  canvas.width = width
+  canvas.height = height
+  canvas.getContext('2d')!.drawImage(img, 0, 0, width, height)
+
+  const compressed = canvas.toDataURL('image/jpeg', 0.85)
+  const base64 = compressed.split(',')[1]
+  return { dataUrl: compressed, base64, mediaType: 'image/jpeg' }
 }
