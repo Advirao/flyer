@@ -71,9 +71,11 @@ export async function POST(req: NextRequest) {
     const passwordHash = await hash(result.data.password, 12)
     await prisma.user.create({ data: { email: normalizedEmail, passwordHash } })
     return NextResponse.json({ success: true }, { headers: { Connection: 'close' } })
-  } catch {
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    console.error('[signup] error:', msg)
     return NextResponse.json(
-      { error: 'Something went wrong. Please try again.' },
+      { error: 'Something went wrong. Please try again.', detail: msg },
       { status: 500, headers: { Connection: 'close' } }
     )
   }
