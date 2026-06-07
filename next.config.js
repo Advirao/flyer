@@ -1,5 +1,6 @@
 /** @type {import('next').NextConfig} */
 const isDev = process.env.NODE_ENV !== 'production'
+const isGitHubPages = process.env.GITHUB_PAGES === 'true'
 
 // In dev, Next.js HMR requires 'unsafe-eval'. In production it is not needed.
 const scriptSrc = isDev
@@ -16,7 +17,15 @@ const csp = [
   "frame-ancestors 'none'",
 ].join('; ')
 
-const nextConfig = {
+const pagesConfig = {
+  output: 'export',
+  basePath: '/flyer',
+  assetPrefix: '/flyer/',
+  trailingSlash: true,
+  images: { unoptimized: true },
+}
+
+const appConfig = {
   async headers() {
     return [
       {
@@ -33,5 +42,7 @@ const nextConfig = {
     ]
   },
 }
+
+const nextConfig = isGitHubPages ? pagesConfig : appConfig
 
 module.exports = nextConfig
