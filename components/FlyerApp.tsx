@@ -1,8 +1,6 @@
 'use client'
 
 import { useState, useRef, useCallback, useEffect } from 'react'
-import { useSession, signOut } from 'next-auth/react'
-import Link from 'next/link'
 import FlyerPreview from './FlyerPreview'
 import FBMarketplaceCard from './FBMarketplaceCard'
 
@@ -34,7 +32,6 @@ type Step = 'upload' | 'details' | 'preview'
 type PreviewTab = 'flyer' | 'fb'
 
 export default function FlyerApp() {
-  const { data: session } = useSession()
   const [step, setStep] = useState<Step>('upload')
   const [settings, setSettings] = useState<Settings>({ pickupAddress: '', contact: '' })
   const [settingsDraft, setSettingsDraft] = useState<Settings>({ pickupAddress: '', contact: '' })
@@ -125,7 +122,7 @@ export default function FlyerApp() {
     } finally {
       setAnalyzing(false)
     }
-  }, [settings.userApiKey])
+  }, [settings.provider, settings.userApiKey])
 
   const handleDrop = useCallback(
     (e: React.DragEvent) => {
@@ -176,35 +173,6 @@ export default function FlyerApp() {
           >
             <span>⚙️</span><span className="hidden sm:inline">Settings</span>
           </button>
-          {session?.user ? (
-            <>
-              <span className="hidden sm:block text-xs text-gray-400 max-w-[140px] truncate">
-                {session.user.email}
-              </span>
-              <button
-                onClick={() => signOut({ callbackUrl: '/' })}
-                className="text-sm text-gray-500 hover:text-red-600 flex items-center gap-1 px-3 py-1.5 rounded-lg hover:bg-red-50 transition"
-                title="Sign out"
-              >
-                <span>→</span><span className="hidden sm:inline">Sign out</span>
-              </button>
-            </>
-          ) : (
-            <>
-              <Link
-                href="/auth/signin"
-                className="text-sm text-gray-500 hover:text-gray-900 px-3 py-1.5 rounded-lg hover:bg-gray-100 transition"
-              >
-                Sign in
-              </Link>
-              <Link
-                href="/auth/signup"
-                className="text-sm font-semibold bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg transition"
-              >
-                Sign up
-              </Link>
-            </>
-          )}
         </div>
       </header>
 

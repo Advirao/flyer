@@ -65,16 +65,10 @@ export default function LandingPage() {
             </div>
             <div className="flex items-center gap-3">
               <Link
-                href="/auth/signin"
-                className="text-sm font-medium text-gray-600 hover:text-gray-900 transition px-3 py-2 rounded-lg hover:bg-gray-50"
-              >
-                Sign in
-              </Link>
-              <Link
-                href="/auth/signup"
+                href="/app"
                 className="text-sm font-semibold bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-xl transition shadow-sm"
               >
-                Get started free
+                Open generator
               </Link>
             </div>
           </div>
@@ -97,10 +91,10 @@ export default function LandingPage() {
             </p>
             <div className="flex justify-center">
               <Link
-                href="/auth/signup"
+                href="/app"
                 className="bg-blue-600 hover:bg-blue-700 text-white font-bold text-lg px-8 py-4 rounded-2xl shadow-lg hover:shadow-xl transition-all transform hover:-translate-y-0.5"
               >
-                Try It — Create an Account →
+                Try It Now →
               </Link>
             </div>
           </div>
@@ -161,10 +155,10 @@ export default function LandingPage() {
             </p>
             <div className="flex justify-center">
               <Link
-                href="/auth/signup"
+                href="/app"
                 className="inline-block bg-white text-blue-600 font-bold text-lg px-10 py-4 rounded-2xl shadow-lg hover:shadow-xl transition-all transform hover:-translate-y-0.5"
               >
-                Try It — Create an Account →
+                Open Generator →
               </Link>
             </div>
           </div>
@@ -180,10 +174,7 @@ export default function LandingPage() {
             <p className="text-sm">
               © {new Date().getFullYear()} Flyer Generator. All rights reserved.
             </p>
-            <div className="flex gap-4 text-sm">
-              <Link href="/auth/signin" className="hover:text-white transition">Sign in</Link>
-              <Link href="/auth/signup" className="hover:text-white transition">Sign up</Link>
-            </div>
+            <Link href="/app" className="text-sm hover:text-white transition">Open generator</Link>
           </div>
         </footer>
       </div>

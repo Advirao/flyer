@@ -10,16 +10,10 @@ export default function sitemap(): MetadataRoute.Sitemap {
       priority: 1,
     },
     {
-      url: `${base}/auth/signin`,
+      url: `${base}/app`,
       lastModified: new Date('2026-04-11'),
-      changeFrequency: 'yearly',
-      priority: 0.5,
-    },
-    {
-      url: `${base}/auth/signup`,
-      lastModified: new Date('2026-04-11'),
-      changeFrequency: 'yearly',
-      priority: 0.6,
+      changeFrequency: 'monthly',
+      priority: 0.9,
     },
   ]
 }

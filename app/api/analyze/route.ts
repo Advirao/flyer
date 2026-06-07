@@ -1,8 +1,6 @@
 import OpenAI from 'openai'
 import Anthropic from '@anthropic-ai/sdk'
 import { NextRequest, NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
 import { getClientIp, rateLimit } from '@/lib/rate-limit'
 
 const ALLOWED_MEDIA_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif'])
@@ -33,13 +31,8 @@ const PROMPT = `Analyze this image of an item for sale and return ONLY this JSON
 }`
 
 export async function POST(req: NextRequest) {
-  const session = await getServerSession(authOptions)
-  if (!session) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
-
-  const userId = (session.user as { id?: string })?.id ?? session.user?.email ?? getClientIp(req)
-  const rl = rateLimit(`analyze:${userId}`, 10, 60 * 1000)
+  const ip = getClientIp(req)
+  const rl = rateLimit(`analyze:${ip}`, 10, 60 * 1000)
   if (!rl.allowed) {
     return NextResponse.json(
       { error: 'Too many requests. Please wait a moment and try again.' },
